@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
-#include <ESPAsyncWebServer.h>
+#include <ESP8266WebServer.h>
 #include <WiFiManager.h>
 #include <ESP8266mDNS.h>
 #include <LittleFS.h>
@@ -36,12 +35,11 @@ bool masterOn = true;
 int masterBrightness = 255; // 0-255
 bool beaconPulseMode = true; // true = pulse, false = blink
 
-// --- Timing Variables ---
 unsigned long lastSave = 0;
 bool needsSave = false;
 
 // --- Objects ---
-AsyncWebServer server(80);
+ESP8266WebServer server(80);
 AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW, -1, 4);
 OneButton button(PIN_ENCODER_SW, true);
 
@@ -52,7 +50,6 @@ void updatePwm(int pin, bool chState, int chBrightness, int value) {
     analogWrite(pin, 0);
     return;
   }
-  // value is the current flash/pulse phase (0-255)
   int target = (chBrightness * masterBrightness * value) / (255 * 255);
   int pwm = map(target, 0, 255, 0, PWM_RANGE);
   analogWrite(pin, pwm);
@@ -91,16 +88,12 @@ void saveConfig() {
   doc["masterOn"] = masterOn;
   doc["masterBrightness"] = masterBrightness;
   doc["beaconPulseMode"] = beaconPulseMode;
-
   doc["nav"]["state"] = nav.state;
   doc["nav"]["brightness"] = nav.brightness;
-
   doc["strobeWing"]["state"] = strobeWing.state;
   doc["strobeWing"]["brightness"] = strobeWing.brightness;
-
   doc["strobeTail"]["state"] = strobeTail.state;
   doc["strobeTail"]["brightness"] = strobeTail.brightness;
-
   doc["beacon"]["state"] = beacon.state;
   doc["beacon"]["brightness"] = beacon.brightness;
 
@@ -108,7 +101,6 @@ void saveConfig() {
   if (configFile) {
     serializeJson(doc, configFile);
     configFile.close();
-    Serial.println("Config saved");
   }
 }
 
@@ -116,28 +108,21 @@ void loadConfig() {
   if (!LittleFS.exists("/config.json")) return;
   File configFile = LittleFS.open("/config.json", "r");
   if (!configFile) return;
-
   StaticJsonDocument<512> doc;
   DeserializationError error = deserializeJson(doc, configFile);
   if (!error) {
     masterOn = doc["masterOn"];
     masterBrightness = doc["masterBrightness"];
     beaconPulseMode = doc["beaconPulseMode"];
-
     nav.state = doc["nav"]["state"];
     nav.brightness = doc["nav"]["brightness"];
-
     strobeWing.state = doc["strobeWing"]["state"];
     strobeWing.brightness = doc["strobeWing"]["brightness"];
-
     strobeTail.state = doc["strobeTail"]["state"];
     strobeTail.brightness = doc["strobeTail"]["brightness"];
-
     beacon.state = doc["beacon"]["state"];
     beacon.brightness = doc["beacon"]["brightness"];
-
     rotaryEncoder.setEncoderValue(masterBrightness);
-    Serial.println("Config loaded");
   }
   configFile.close();
 }
@@ -170,100 +155,113 @@ void handleDoubleClick() {
 }
 
 // --- Web Server ---
+void handleRoot() {
+  File file = LittleFS.open("/index.html", "r");
+  server.streamFile(file, "text/html");
+  file.close();
+}
+
+void handleStyle() {
+  File file = LittleFS.open("/style.css", "r");
+  server.streamFile(file, "text/css");
+  file.close();
+}
+
+void handleScript() {
+  File file = LittleFS.open("/script.js", "r");
+  server.streamFile(file, "application/javascript");
+  file.close();
+}
+
+void handleGetState() {
+  StaticJsonDocument<512> doc;
+  doc["masterOn"] = masterOn;
+  doc["masterBrightness"] = masterBrightness;
+  doc["beaconPulseMode"] = beaconPulseMode;
+  doc["nav"]["state"] = nav.state;
+  doc["nav"]["brightness"] = nav.brightness;
+  doc["strobeWing"]["state"] = strobeWing.state;
+  doc["strobeWing"]["brightness"] = strobeWing.brightness;
+  doc["strobeTail"]["state"] = strobeTail.state;
+  doc["strobeTail"]["brightness"] = strobeTail.brightness;
+  doc["beacon"]["state"] = beacon.state;
+  doc["beacon"]["brightness"] = beacon.brightness;
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+void handlePostMaster() {
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, server.arg("plain"));
+  masterOn = doc["masterOn"];
+  masterBrightness = doc["masterBrightness"];
+  rotaryEncoder.setEncoderValue(masterBrightness);
+  needsSave = true; lastSave = millis();
+  server.send(200);
+}
+
+void handlePostNav() {
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, server.arg("plain"));
+  nav.state = doc["state"];
+  nav.brightness = doc["brightness"];
+  needsSave = true; lastSave = millis();
+  server.send(200);
+}
+
+void handlePostStrobeWing() {
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, server.arg("plain"));
+  strobeWing.state = doc["state"];
+  strobeWing.brightness = doc["brightness"];
+  needsSave = true; lastSave = millis();
+  server.send(200);
+}
+
+void handlePostStrobeTail() {
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, server.arg("plain"));
+  strobeTail.state = doc["state"];
+  strobeTail.brightness = doc["brightness"];
+  needsSave = true; lastSave = millis();
+  server.send(200);
+}
+
+void handlePostBeacon() {
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, server.arg("plain"));
+  beacon.state = doc["state"];
+  beacon.brightness = doc["brightness"];
+  needsSave = true; lastSave = millis();
+  server.send(200);
+}
+
+void handlePostBeaconMode() {
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, server.arg("plain"));
+  beaconPulseMode = doc["pulse"];
+  needsSave = true; lastSave = millis();
+  server.send(200);
+}
+
 void setupWebServer() {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(LittleFS, "/index.html", "text/html");
-  });
-  server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(LittleFS, "/style.css", "text/css");
-  });
-  server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(LittleFS, "/script.js", "application/javascript");
-  });
-
-  server.on("/api/state", HTTP_GET, [](AsyncWebServerRequest *request){
-    StaticJsonDocument<512> doc;
-    doc["masterOn"] = masterOn;
-    doc["masterBrightness"] = masterBrightness;
-    doc["beaconPulseMode"] = beaconPulseMode;
-    doc["nav"]["state"] = nav.state;
-    doc["nav"]["brightness"] = nav.brightness;
-    doc["strobeWing"]["state"] = strobeWing.state;
-    doc["strobeWing"]["brightness"] = strobeWing.brightness;
-    doc["strobeTail"]["state"] = strobeTail.state;
-    doc["strobeTail"]["brightness"] = strobeTail.brightness;
-    doc["beacon"]["state"] = beacon.state;
-    doc["beacon"]["brightness"] = beacon.brightness;
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  server.on("/api/master", HTTP_POST, [](AsyncWebServerRequest * request) {}, NULL, [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, (const char*)data);
-    masterOn = doc["masterOn"];
-    masterBrightness = doc["masterBrightness"];
-    rotaryEncoder.setEncoderValue(masterBrightness);
-    needsSave = true;
-    lastSave = millis();
-    request->send(200);
-  });
-
-  server.on("/api/channel/nav", HTTP_POST, [](AsyncWebServerRequest * request) {}, NULL, [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, (const char*)data);
-    nav.state = doc["state"];
-    nav.brightness = doc["brightness"];
-    needsSave = true; lastSave = millis();
-    request->send(200);
-  });
-
-  server.on("/api/channel/strobeWing", HTTP_POST, [](AsyncWebServerRequest * request) {}, NULL, [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, (const char*)data);
-    strobeWing.state = doc["state"];
-    strobeWing.brightness = doc["brightness"];
-    needsSave = true; lastSave = millis();
-    request->send(200);
-  });
-
-  server.on("/api/channel/strobeTail", HTTP_POST, [](AsyncWebServerRequest * request) {}, NULL, [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, (const char*)data);
-    strobeTail.state = doc["state"];
-    strobeTail.brightness = doc["brightness"];
-    needsSave = true; lastSave = millis();
-    request->send(200);
-  });
-
-  server.on("/api/channel/beacon", HTTP_POST, [](AsyncWebServerRequest * request) {}, NULL, [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, (const char*)data);
-    beacon.state = doc["state"];
-    beacon.brightness = doc["brightness"];
-    needsSave = true; lastSave = millis();
-    request->send(200);
-  });
-
-  server.on("/api/beaconMode", HTTP_POST, [](AsyncWebServerRequest * request) {}, NULL, [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, (const char*)data);
-    beaconPulseMode = doc["pulse"];
-    needsSave = true; lastSave = millis();
-    request->send(200);
-  });
-
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/style.css", HTTP_GET, handleStyle);
+  server.on("/script.js", HTTP_GET, handleScript);
+  server.on("/api/state", HTTP_GET, handleGetState);
+  server.on("/api/master", HTTP_POST, handlePostMaster);
+  server.on("/api/channel/nav", HTTP_POST, handlePostNav);
+  server.on("/api/channel/strobeWing", HTTP_POST, handlePostStrobeWing);
+  server.on("/api/channel/strobeTail", HTTP_POST, handlePostStrobeTail);
+  server.on("/api/channel/beacon", HTTP_POST, handlePostBeacon);
+  server.on("/api/beaconMode", HTTP_POST, handlePostBeaconMode);
   server.begin();
 }
 
 void setup() {
   Serial.begin(115200);
-
-  if (!LittleFS.begin()) {
-    Serial.println("LittleFS Mount Failed");
-  }
+  if (!LittleFS.begin()) Serial.println("LittleFS Mount Failed");
 
   pinMode(PIN_NAV, OUTPUT);
   pinMode(PIN_STROBE_WING, OUTPUT);
@@ -274,8 +272,7 @@ void setup() {
   rotaryEncoder.begin();
   rotaryEncoder.setup([] { rotaryEncoder.readEncoder_ISR(); }, [] {  });
   rotaryEncoder.setBoundaries(0, 255, false);
-
-  loadConfig(); // Load after encoder setup to set value
+  loadConfig();
 
   button.attachClick(handleClick);
   button.attachDoubleClick(handleDoubleClick);
@@ -283,26 +280,21 @@ void setup() {
   WiFiManager wm;
   wm.autoConnect("Airbus-Lights-Setup");
 
-  if (MDNS.begin("lights")) {
-    Serial.println("MDNS responder started: http://lights.local");
-  }
-
+  if (MDNS.begin("lights")) Serial.println("MDNS started: http://lights.local");
   setupWebServer();
 }
 
 void loop() {
   MDNS.update();
+  server.handleClient();
   button.tick();
   readEncoder();
-
   handleNav();
   handleStrobes();
   handleBeacon();
-
   if (needsSave && millis() - lastSave > 5000) {
     saveConfig();
     needsSave = false;
   }
-
   delay(10);
 }
