@@ -35,15 +35,41 @@ Ensure you have the following libraries installed in your Arduino IDE:
 -   `OneButton`
 -   `AiEsp32RotaryEncoder`
 
-## 🔌 Installation
+## 🔌 Installation Guide
 
-1.  **Wiring**: Follow the detailed [Wiring Diagram and Resistor Table](documents/wiring.md).
-2.  **Flash Filesystem**:
-    -   Upload the contents of the `airbus_lights/data` folder to the Wemos D1 Mini using the **LittleFS Data Upload** tool.
-3.  **Upload Code**:
-    -   Open `airbus_lights/airbus_lights.ino` in the Arduino IDE.
-    -   Select "Wemos D1 R2 & mini" as the board.
-    -   Upload the sketch.
+### 1. Prepare Arduino IDE
+- **Install ESP8266 Board Support**:
+    - Go to `File > Preferences`.
+    - In "Additional Boards Manager URLs", paste: `http://arduino.esp8266.com/stable/package_esp8266com_index.json`
+    - Go to `Tools > Board > Boards Manager`, search for `esp8266`, and install the latest version.
+- **Install Required Libraries**:
+    - Go to `Sketch > Include Library > Manage Libraries...`.
+    - Search for and install:
+        - `ESPAsyncWebServer` (and its dependency `ESPAsyncTCP`)
+        - `WiFiManager` (by tzapu)
+        - `ArduinoJson` (by Benoit Blanchon)
+        - `OneButton` (by Matthias Hertel)
+        - `AiEsp32RotaryEncoder` (by Igor Antolic)
+
+### 2. Install LittleFS Upload Tool
+The web files must be uploaded separately to the ESP8266's flash memory.
+- Download the [ESP8266 LittleFS Filesystem Uploader](https://github.com/earlephilhower/arduino-esp8266littlefs-plugin/releases).
+- Place the `.jar` file in your Arduino `tools` directory (e.g., `Documents/Arduino/tools/ESP8266LittleFS/tool/esp8266littlefs.jar`).
+- Restart Arduino IDE. You should see "ESP8266 LittleFS Data Upload" under the `Tools` menu.
+
+### 3. Wiring
+- Connect your LEDs and Rotary Encoder according to the [Detailed Wiring & Pinout Guide](documents/wiring.md).
+- **Crucial**: Ensure you use the resistors specified in the guide to avoid damaging your Wemos D1 Mini.
+
+### 4. Upload Files and Code
+1.  **Upload Web Assets**:
+    - Connect your Wemos D1 Mini via USB.
+    - Open `airbus_lights/airbus_lights.ino`.
+    - Go to `Tools > ESP8266 LittleFS Data Upload`. **Wait for it to finish.**
+2.  **Upload Sketch**:
+    - Go to `Tools > Board` and select `LOLIN(WEMOS) D1 R2 & mini`.
+    - Select the correct `Port`.
+    - Click the **Upload** button (arrow icon).
 
 ## 📱 Usage
 
