@@ -20,6 +20,72 @@
 
 #define PWM_RANGE 1023
 
+// --- Embedded Web Interface (HTML/CSS/JS) ---
+const char INDEX_HTML[] PROGMEM = R"=====(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Airbus Light Control</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #1a1a1a; color: #e0e0e0; display: flex; justify-content: center; padding: 20px; }
+        .container { width: 100%; max-width: 400px; background: #2d2d2d; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        h1, h3 { text-align: center; color: #00aaff; }
+        .section { border-bottom: 1px solid #444; padding: 15px 0; }
+        .section:last-child { border-bottom: none; }
+        .control-row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0; }
+        input[type=range] { flex-grow: 1; margin-left: 15px; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #00aaff; }
+        input:checked + .slider:before { transform: translateX(26px); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Airbus Lights</h1>
+        <div class="section">
+            <div class="control-row"><span>Master Power</span><label class="switch"><input type="checkbox" id="masterOn" onchange="updateMaster()"><span class="slider"></span></label></div>
+            <div class="control-row"><span>Master Brightness</span><input type="range" id="masterBrightness" min="0" max="255" oninput="updateMaster()"></div>
+        </div>
+        <div class="section">
+            <h3>Navigation</h3>
+            <div class="control-row"><label class="switch"><input type="checkbox" id="navState" onchange="updateChannel('nav')"><span class="slider"></span></label><input type="range" id="navBrightness" min="0" max="255" oninput="updateChannel('nav')"></div>
+        </div>
+        <div class="section">
+            <h3>Strobes</h3>
+            <div class="control-row"><span>Wing</span><label class="switch"><input type="checkbox" id="strobeWingState" onchange="updateChannel('strobeWing')"><span class="slider"></span></label><input type="range" id="strobeWingBrightness" min="0" max="255" oninput="updateChannel('strobeWing')"></div>
+            <div class="control-row"><span>Tail</span><label class="switch"><input type="checkbox" id="strobeTailState" onchange="updateChannel('strobeTail')"><span class="slider"></span></label><input type="range" id="strobeTailBrightness" min="0" max="255" oninput="updateChannel('strobeTail')"></div>
+        </div>
+        <div class="section">
+            <h3>Beacon</h3>
+            <div class="control-row"><label class="switch"><input type="checkbox" id="beaconState" onchange="updateChannel('beacon')"><span class="slider"></span></label><input type="range" id="beaconBrightness" min="0" max="255" oninput="updateChannel('beacon')"></div>
+            <div class="control-row"><span>Mode: <span id="beaconModeText">Pulse</span></span><label class="switch"><input type="checkbox" id="beaconPulseMode" onchange="updateBeaconMode()"><span class="slider"></span></label></div>
+        </div>
+    </div>
+    <script>
+        function updateMaster() { sendUpdate('/api/master', { masterOn: document.getElementById('masterOn').checked, masterBrightness: parseInt(document.getElementById('masterBrightness').value) }); }
+        function updateChannel(name) { sendUpdate('/api/channel/' + name, { state: document.getElementById(name + 'State').checked, brightness: parseInt(document.getElementById(name + 'Brightness').value) }); }
+        function updateBeaconMode() { let isPulse = document.getElementById('beaconPulseMode').checked; document.getElementById('beaconModeText').innerText = isPulse ? 'Pulse' : 'Blink'; sendUpdate('/api/beaconMode', { pulse: isPulse }); }
+        function sendUpdate(url, data) { fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); }
+        function fetchState() {
+            fetch('/api/state').then(r => r.json()).then(s => {
+                document.getElementById('masterOn').checked = s.masterOn; document.getElementById('masterBrightness').value = s.masterBrightness;
+                document.getElementById('navState').checked = s.nav.state; document.getElementById('navBrightness').value = s.nav.brightness;
+                document.getElementById('strobeWingState').checked = s.strobeWing.state; document.getElementById('strobeWingBrightness').value = s.strobeWing.brightness;
+                document.getElementById('strobeTailState').checked = s.strobeTail.state; document.getElementById('strobeTailBrightness').value = s.strobeTail.brightness;
+                document.getElementById('beaconState').checked = s.beacon.state; document.getElementById('beaconBrightness').value = s.beacon.brightness;
+                document.getElementById('beaconPulseMode').checked = s.beaconPulseMode; document.getElementById('beaconModeText').innerText = s.beaconPulseMode ? 'Pulse' : 'Blink';
+            });
+        }
+        fetchState(); setInterval(fetchState, 2000);
+    </script>
+</body>
+</html>
+)=====";
+
 // --- State Variables ---
 struct LightChannel {
   bool state;
@@ -101,11 +167,15 @@ void saveConfig() {
   if (configFile) {
     serializeJson(doc, configFile);
     configFile.close();
+    Serial.println("Config saved.");
   }
 }
 
 void loadConfig() {
-  if (!LittleFS.exists("/config.json")) return;
+  if (!LittleFS.exists("/config.json")) {
+    Serial.println("No config file found. Using defaults.");
+    return;
+  }
   File configFile = LittleFS.open("/config.json", "r");
   if (!configFile) return;
   StaticJsonDocument<512> doc;
@@ -123,6 +193,7 @@ void loadConfig() {
     beacon.state = doc["beacon"]["state"];
     beacon.brightness = doc["beacon"]["brightness"];
     rotaryEncoder.setEncoderValue(masterBrightness);
+    Serial.println("Config loaded.");
   }
   configFile.close();
 }
@@ -156,21 +227,7 @@ void handleDoubleClick() {
 
 // --- Web Server ---
 void handleRoot() {
-  File file = LittleFS.open("/index.html", "r");
-  server.streamFile(file, "text/html");
-  file.close();
-}
-
-void handleStyle() {
-  File file = LittleFS.open("/style.css", "r");
-  server.streamFile(file, "text/css");
-  file.close();
-}
-
-void handleScript() {
-  File file = LittleFS.open("/script.js", "r");
-  server.streamFile(file, "application/javascript");
-  file.close();
+  server.send_P(200, "text/html", INDEX_HTML);
 }
 
 void handleGetState() {
@@ -247,8 +304,6 @@ void handlePostBeaconMode() {
 
 void setupWebServer() {
   server.on("/", HTTP_GET, handleRoot);
-  server.on("/style.css", HTTP_GET, handleStyle);
-  server.on("/script.js", HTTP_GET, handleScript);
   server.on("/api/state", HTTP_GET, handleGetState);
   server.on("/api/master", HTTP_POST, handlePostMaster);
   server.on("/api/channel/nav", HTTP_POST, handlePostNav);
@@ -261,7 +316,13 @@ void setupWebServer() {
 
 void setup() {
   Serial.begin(115200);
-  if (!LittleFS.begin()) Serial.println("LittleFS Mount Failed");
+
+  // Initialize LittleFS - automatically format if fresh board
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS mount failed. Formatting...");
+    LittleFS.format();
+    LittleFS.begin();
+  }
 
   pinMode(PIN_NAV, OUTPUT);
   pinMode(PIN_STROBE_WING, OUTPUT);
